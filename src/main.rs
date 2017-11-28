@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use regex::Regex;
 use std::io::Read;
 use std::env;
+use std::fmt;
 
 lazy_static! {
     static ref TOOL_REGEX: Regex = Regex::new(r"\*\s\[(.*)\]\((http[s]?://.*)\)\s(:copyright:\s)?\-\s(.*)").unwrap();
@@ -56,6 +57,19 @@ error_chain!{
 enum Status {
     Success,
     Pending,
+    Failure,
+    Error,
+}
+
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+       match *self {
+           Status::Pending => write!(f, "pending"),
+           Status::Success => write!(f, "success"),
+           Status::Failure => write!(f, "failure"),
+           Status::Error => write!(f, "error"),
+       }
+    }
 }
 
 fn main() {
@@ -81,6 +95,9 @@ fn main() {
 }
 
 pub fn run() -> Result<()> {
+    // Check that the API token is available
+    env::var("GITHUB_TOKEN")?;
+
     let addr = format!("0.0.0.0:{}", 4567);
 
     let mut hub = Hub::new();
@@ -92,12 +109,12 @@ pub fn run() -> Result<()> {
                 let branch = &pull_request.head._ref;
                 let sha = &pull_request.head.sha;
 
-                set_status(Status::Pending, repo, sha).expect("Can't set status to pending");
+                set_status(Status::Pending, "Analysis started".into(), repo, sha).expect("Can't set status to pending");
                 let result = handle_pull_request(repo, branch);
                 match result {
-                    Err(e) => println!("An error occured during analysis: {}", e),
-                    Ok(()) => println!("Pull request passed analysis"),
-                }
+                    Err(e) => set_status(Status::Failure, format!("Build failed: {}", e).into(), repo, sha).expect("Can't set status to failure"),
+                    Ok(()) => set_status(Status::Success, "Build successful".into(), repo, sha).expect("Can't set status to success"),
+                };
             }
             _ => (),
         },
@@ -108,12 +125,12 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn set_status(status: Status, repo: &str, sha: &str) -> Result<reqwest::Response> {
+fn set_status(status: Status, desc: String, repo: &str, sha: &str) -> Result<reqwest::Response> {
     let token = env::var("GITHUB_TOKEN")?;
     let client = reqwest::Client::new();
     let mut params = HashMap::new();
-    params.insert("state", "pending");
-    params.insert("description", "Analysis started");
+    params.insert("state", format!("{}", status));
+    params.insert("description", desc);
     Ok(client.request(
       reqwest::Method::Post,
         &format!(
