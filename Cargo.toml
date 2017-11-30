@@ -4,9 +4,9 @@ name = "check"
 version = "0.1.0"
 
 [dependencies]
-afterparty = "0.2.0"
+afterparty = { git = "https://github.com/ms705/afterparty" }
 error-chain = "0.11.0"
+hyper = "0.10"
 lazy_static = "0.2.9"
 regex = "0.2.2"
 reqwest = "0.8.1"
-hyper = "0.9"
