@@ -22,7 +22,14 @@ Inside the subdirectory, there's just a Dockerfile, which references our newly b
 We need to specify the Github token to be able to set status reports for our pull requests.  
 
 ```
-cd deploy && now -e GITHUB_TOKEN=<TOKEN>
+cd deploy && now --public -e GITHUB_TOKEN=<TOKEN>
+```
+
+Finally, set an alias for the newly deployed domain:
+
+```
+now ls
+now alias set <hash-id>.now.sh check.now.sh
 ```
 
 Note:
