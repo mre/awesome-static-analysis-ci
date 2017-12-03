@@ -1,0 +1,1 @@
+FROM mre0/ci:latest
