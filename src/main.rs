@@ -22,6 +22,7 @@ use regex::Regex;
 use std::io::Read;
 use std::env;
 use std::fmt;
+use std::cmp::Ordering;
 
 lazy_static! {
     static ref TOOL_REGEX: Regex = Regex::new(r"\*\s\[(.*)\]\((http[s]?://.*)\)\s(:copyright:\s)?\-\s(.*)").unwrap();
@@ -41,16 +42,6 @@ error_chain!{
             description("Empty section")
             display("A tool section may not be empty")
         }
-
-        BrokenLink(url: String) {
-            description("The URL does not appear to be correct")
-            display("Invalid tool URL: {}", url)
-        }
-
-        InvalidTool(raw: String) {
-            description("Invalid tool")
-            display("Invalid tool: {}", raw)
-        }
     }
 }
 
@@ -59,6 +50,32 @@ enum Status {
     Pending,
     Failure,
     Error,
+}
+
+struct Tool {
+    name: String,
+    link: String,
+    desc: String,
+}
+
+impl PartialEq for Tool {
+    fn eq(&self, other: &Tool) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for Tool {}
+
+impl PartialOrd for Tool {
+    fn partial_cmp(&self, other: &Tool) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Tool {
+    fn cmp(&self, other: &Tool) -> Ordering {
+        self.name.cmp(&other.name)
+    }
 }
 
 impl fmt::Display for Status {
@@ -104,7 +121,11 @@ pub fn run() -> Result<()> {
     hub.handle(
         "pull_request",
         |delivery: &Delivery| match delivery.payload {
-            Event::PullRequest { ref pull_request, .. } => {
+            Event::PullRequest { ref action, ref pull_request, .. } => {
+                match action.as_ref() {
+                    "opened" | "reopened" | "edited" | "synchronized" => (),
+                    _ => return ()
+                }
                 let repo = &pull_request.head.repo.full_name;
                 let branch = &pull_request.head._ref;
                 let sha = &pull_request.head.sha;
@@ -142,13 +163,6 @@ fn set_status(status: Status, desc: String, repo: &str, sha: &str) -> Result<req
 }
 
 fn handle_pull_request(project_name: &str, branch: &str) -> Result<()> {
-    // let readme_url = contents_url.replace("{+path}", "README.md");
-    // let readme_url_branch = format!("{}?ref={}", readme_url, pull_request.head._ref);
-    // println!("{}", readme_url_branch);
-    // type: json
-    // content: base 64
-    // https://api.github.com/repos/mre/awesome-static-analysis/contents/README.md?ref=mre-patch-2
-    // TODO: https://raw.githubusercontent.com/mre/awesome-static-analysis/master/README.md
     let mut payload = reqwest::get(&format!(
         "https://raw.githubusercontent.com/{}/{}/README.md",
         project_name,
@@ -161,22 +175,30 @@ fn handle_pull_request(project_name: &str, branch: &str) -> Result<()> {
 
 }
 
-fn check_tool(tool: &str) -> Result<()> {
+fn check_tool(tool: &str) -> Result<Tool> {
     println!(">{}<", tool);
     let captures = TOOL_REGEX.captures(tool).ok_or(
-        "Invalid syntax for tool"
-            .to_string(),
+        format!("Invalid syntax for tool: {}", tool)
     )?;
 
     let name = captures[1].to_string();
     let link = captures[2].to_string();
     let desc = captures[4].to_string();
 
-    println!("Desc: {}", desc);
+    if name.len() > 50 {
+        bail!("Name of tool is suspiciously long: `{}`", name);
+    }
+
+    // A somewhat arbitrarily chosen description length.
+    // Note that this includes any markdown formatting
+    // like links. Therefore we are quite generous for now.
+    if desc.len() > 200 {
+        bail!("Desription of `{}` is too long: {}", name, desc);
+    }
 
     reqwest::get(&link)?;
 
-    Ok(())
+    Ok(Tool { name, link, desc})
 }
 
 fn check_section(section: String) -> Result<()> {
@@ -190,6 +212,8 @@ fn check_section(section: String) -> Result<()> {
     if lines.is_empty() {
         return Err(ErrorKind::EmptySection.into());
     };
+
+    let mut tools = vec![];
     for line in lines {
         if line.is_empty() {
             continue;
@@ -200,9 +224,14 @@ fn check_section(section: String) -> Result<()> {
         {
             continue;
         }
-        check_tool(line)?
+        tools.push(check_tool(line)?);
     }
-    Ok(())
+
+    // Our final check: tools need to be alphabetically ordered
+    match tools.windows(2).all(|t| t[0] < t[1]) {
+        true => Ok(()),
+        false => bail!("Tools of section `{}` are not in order", section)
+    }
 }
 
 fn check(text: String) -> Result<()> {
