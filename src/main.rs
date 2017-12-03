@@ -80,12 +80,12 @@ impl Ord for Tool {
 
 impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-       match *self {
-           Status::Pending => write!(f, "pending"),
-           Status::Success => write!(f, "success"),
-           Status::Failure => write!(f, "failure"),
-           Status::Error => write!(f, "error"),
-       }
+        match *self {
+            Status::Pending => write!(f, "pending"),
+            Status::Success => write!(f, "success"),
+            Status::Failure => write!(f, "failure"),
+            Status::Error => write!(f, "error"),
+        }
     }
 }
 
@@ -152,14 +152,18 @@ fn set_status(status: Status, desc: String, repo: &str, sha: &str) -> Result<req
     let mut params = HashMap::new();
     params.insert("state", format!("{}", status));
     params.insert("description", desc);
-    Ok(client.request(
-      reqwest::Method::Post,
-        &format!(
-        "https://api.github.com/repos/{}/statuses/{}?access_token={}",
-        repo,
-        sha,
-        token),
-    ).json(&params).send()?)
+    Ok(client
+        .request(
+            reqwest::Method::Post,
+            &format!(
+                "https://api.github.com/repos/{}/statuses/{}?access_token={}",
+                repo,
+                sha,
+                token
+            ),
+        )
+        .json(&params)
+        .send()?)
 }
 
 fn handle_pull_request(project_name: &str, branch: &str) -> Result<()> {
@@ -172,14 +176,14 @@ fn handle_pull_request(project_name: &str, branch: &str) -> Result<()> {
     payload.read_to_string(&mut result)?;
     println!("{}", result);
     check(result)
-
 }
 
 fn check_tool(tool: &str) -> Result<Tool> {
     println!(">{}<", tool);
-    let captures = TOOL_REGEX.captures(tool).ok_or(
-        format!("Invalid syntax for tool: {}", tool)
-    )?;
+    let captures = TOOL_REGEX.captures(tool).ok_or(format!(
+        "Invalid syntax for tool: {}",
+        tool
+    ))?;
 
     let name = captures[1].to_string();
     let link = captures[2].to_string();
@@ -198,7 +202,7 @@ fn check_tool(tool: &str) -> Result<Tool> {
 
     reqwest::get(&link)?;
 
-    Ok(Tool { name, link, desc})
+    Ok(Tool { name, link, desc })
 }
 
 fn check_section(section: String) -> Result<()> {
@@ -230,7 +234,7 @@ fn check_section(section: String) -> Result<()> {
     // Our final check: tools need to be alphabetically ordered
     match tools.windows(2).all(|t| t[0] < t[1]) {
         true => Ok(()),
-        false => bail!("Tools of section `{}` are not in order", section)
+        false => bail!("Tools of section `{}` are not in order", section),
     }
 }
 
