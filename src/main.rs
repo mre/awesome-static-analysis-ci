@@ -58,9 +58,15 @@ struct Tool {
     desc: String,
 }
 
+impl Tool {
+    fn new<T: Into<String>>(name: T, link: T, desc: T) -> Self {
+        Tool { name: name.into(), link: link.into(), desc: desc.into() }
+    }
+}
+
 impl PartialEq for Tool {
     fn eq(&self, other: &Tool) -> bool {
-        self.name == other.name
+        self.name.to_lowercase() == other.name.to_lowercase()
     }
 }
 
@@ -74,7 +80,7 @@ impl PartialOrd for Tool {
 
 impl Ord for Tool {
     fn cmp(&self, other: &Tool) -> Ordering {
-        self.name.cmp(&other.name)
+        self.name.to_lowercase().cmp(&other.name.to_lowercase())
     }
 }
 
@@ -132,9 +138,11 @@ pub fn run() -> Result<()> {
 
                 set_status(Status::Pending, "Analysis started".into(), repo, sha).expect("Can't set status to pending");
                 let result = handle_pull_request(repo, branch);
+                println!("{:#?}", result);
+
                 match result {
-                    Err(e) => set_status(Status::Failure, format!("Build failed: {}", e).into(), repo, sha).expect("Can't set status to failure"),
                     Ok(()) => set_status(Status::Success, "Build successful".into(), repo, sha).expect("Can't set status to success"),
+                    Err(e) => set_status(Status::Error, format!("Build failed: {}", e).into(), repo, sha).expect("Can't set status to failure"),
                 };
             }
             _ => (),
@@ -174,7 +182,6 @@ fn handle_pull_request(project_name: &str, branch: &str) -> Result<()> {
     ))?;
     let mut result = String::new();
     payload.read_to_string(&mut result)?;
-    println!("{}", result);
     check(result)
 }
 
@@ -202,7 +209,7 @@ fn check_tool(tool: &str) -> Result<Tool> {
 
     reqwest::get(&link)?;
 
-    Ok(Tool { name, link, desc })
+    Ok(Tool::new(name, link, desc ))
 }
 
 fn check_section(section: String) -> Result<()> {
@@ -230,11 +237,14 @@ fn check_section(section: String) -> Result<()> {
         }
         tools.push(check_tool(line)?);
     }
+    // Tools need to be alphabetically ordered
+    check_ordering(tools).chain_err(|| format!("Section `{}`", section))
+}
 
-    // Our final check: tools need to be alphabetically ordered
-    match tools.windows(2).all(|t| t[0] < t[1]) {
-        true => Ok(()),
-        false => bail!("Tools of section `{}` are not in order", section),
+fn check_ordering(tools: Vec<Tool>) -> Result<()> {
+    match tools.windows(2).find(|t| t[0] > t[1]) {
+        Some(tools) => bail!("`{}` should come later", tools[0].name),
+        None => Ok(()),
     }
 }
 
@@ -250,4 +260,33 @@ fn check(text: String) -> Result<()> {
         }
     }
     Ok(())
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ordering() {
+        assert!(check_ordering(vec![]).is_ok());
+
+        assert!(check_ordering(vec![
+            Tool::new("a", "url", "desc"),
+        ]).is_ok());
+
+        assert!(check_ordering(vec![
+            Tool::new("0", "", ""),
+            Tool::new("1", "", ""),
+            Tool::new("a", "", ""),
+            Tool::new("Axx", "", ""),
+            Tool::new("B", "", ""),
+            Tool::new("b", "", ""),
+            Tool::new("c", "", ""),
+        ]).is_ok());
+
+        assert!(check_ordering(vec![
+            Tool::new("b", "", ""),
+            Tool::new("a", "", ""),
+            Tool::new("c", "", ""),
+        ]).is_err());
+    }
 }
