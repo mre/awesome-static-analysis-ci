@@ -186,7 +186,7 @@ fn handle_pull_request(project_name: &str, branch: &str) -> Result<()> {
 }
 
 fn check_tool(tool: &str) -> Result<Tool> {
-    println!(">{}<", tool);
+    println!("Checking `{}`", tool);
     let captures = TOOL_REGEX.captures(tool).ok_or(format!(
         "Invalid syntax for tool: {}",
         tool
