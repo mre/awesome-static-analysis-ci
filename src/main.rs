@@ -60,7 +60,11 @@ struct Tool {
 
 impl Tool {
     fn new<T: Into<String>>(name: T, link: T, desc: T) -> Self {
-        Tool { name: name.into(), link: link.into(), desc: desc.into() }
+        Tool {
+            name: name.into(),
+            link: link.into(),
+            desc: desc.into(),
+        }
     }
 }
 
@@ -132,18 +136,29 @@ pub fn run() -> Result<()> {
                     "opened" | "reopened" | "edited" | "synchronized" => (),
                     _ => return ()
                 }
-                let repo = &pull_request.head.repo.full_name;
-                let branch = &pull_request.head._ref;
-                let sha = &pull_request.head.sha;
+                let base_repo = &pull_request.base.repo.full_name;
+                let head_repo = &pull_request.head.repo.full_name;
+                let head_branch = &pull_request.head._ref;
+                let head_sha = &pull_request.head.sha;
 
-                set_status(Status::Pending, "Analysis started".into(), repo, sha).expect("Can't set status to pending");
-                let result = handle_pull_request(repo, branch);
+                set_status(Status::Pending, "Analysis started".into(), base_repo, head_sha).expect("Can't set status to pending");
+                let result = handle_pull_request(head_repo, head_branch);
                 println!("{:#?}", result);
 
-                match result {
-                    Ok(()) => set_status(Status::Success, "Build successful".into(), repo, sha).expect("Can't set status to success"),
-                    Err(e) => set_status(Status::Error, format!("Build failed: {}", e).into(), repo, sha).expect("Can't set status to failure"),
+                let mut response = match result {
+                    Ok(()) => set_status(Status::Success, "Build successful".into(), base_repo, head_sha).expect("Can't set status to success"),
+                    Err(e) => {
+                        let mut desc = e.description().to_string();
+                        desc.truncate(140);
+                        println!("{}", desc);
+                        set_status(Status::Error, desc, base_repo, head_sha).expect("Can't set status to error")
+                    },
                 };
+
+                println!("Sent final status. Response code: {}", response.status());
+                let mut buf = String::new();
+                response.read_to_string(&mut buf).expect("Failed to read response");
+                println!("Response body: {}", buf);
             }
             _ => (),
         },
@@ -160,14 +175,17 @@ fn set_status(status: Status, desc: String, repo: &str, sha: &str) -> Result<req
     let mut params = HashMap::new();
     params.insert("state", format!("{}", status));
     params.insert("description", desc);
+    println!("Sending status: {:#?}", params);
+
+    let status_url = format!("https://api.github.com/repos/{}/statuses/{}", repo, sha);
+    println!("Status url: {}", status_url);
     Ok(client
         .request(
             reqwest::Method::Post,
             &format!(
-                "https://api.github.com/repos/{}/statuses/{}?access_token={}",
-                repo,
-                sha,
-                token
+                "{}?access_token={}",
+                status_url,
+                token,
             ),
         )
         .json(&params)
@@ -209,7 +227,7 @@ fn check_tool(tool: &str) -> Result<Tool> {
 
     reqwest::get(&link)?;
 
-    Ok(Tool::new(name, link, desc ))
+    Ok(Tool::new(name, link, desc))
 }
 
 fn check_section(section: String) -> Result<()> {
@@ -238,12 +256,12 @@ fn check_section(section: String) -> Result<()> {
         tools.push(check_tool(line)?);
     }
     // Tools need to be alphabetically ordered
-    check_ordering(tools).chain_err(|| format!("Section `{}`", section))
+    check_ordering(tools)
 }
 
 fn check_ordering(tools: Vec<Tool>) -> Result<()> {
     match tools.windows(2).find(|t| t[0] > t[1]) {
-        Some(tools) => bail!("`{}` should come later", tools[0].name),
+        Some(tools) => bail!("`{}` does not conform to alphabetical ordering", tools[0].name),
         None => Ok(()),
     }
 }
@@ -269,24 +287,26 @@ mod tests {
     fn test_ordering() {
         assert!(check_ordering(vec![]).is_ok());
 
-        assert!(check_ordering(vec![
-            Tool::new("a", "url", "desc"),
-        ]).is_ok());
+        assert!(check_ordering(vec![Tool::new("a", "url", "desc")]).is_ok());
 
-        assert!(check_ordering(vec![
-            Tool::new("0", "", ""),
-            Tool::new("1", "", ""),
-            Tool::new("a", "", ""),
-            Tool::new("Axx", "", ""),
-            Tool::new("B", "", ""),
-            Tool::new("b", "", ""),
-            Tool::new("c", "", ""),
-        ]).is_ok());
+        assert!(
+            check_ordering(vec![
+                Tool::new("0", "", ""),
+                Tool::new("1", "", ""),
+                Tool::new("a", "", ""),
+                Tool::new("Axx", "", ""),
+                Tool::new("B", "", ""),
+                Tool::new("b", "", ""),
+                Tool::new("c", "", ""),
+            ]).is_ok()
+        );
 
-        assert!(check_ordering(vec![
-            Tool::new("b", "", ""),
-            Tool::new("a", "", ""),
-            Tool::new("c", "", ""),
-        ]).is_err());
+        assert!(
+            check_ordering(vec![
+                Tool::new("b", "", ""),
+                Tool::new("a", "", ""),
+                Tool::new("c", "", ""),
+            ]).is_err()
+        );
     }
 }
