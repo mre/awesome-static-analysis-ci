@@ -281,10 +281,21 @@ fn check(text: String) -> Result<()> {
 }
 
 mod tests {
+    use std::fs::File;
+    use std::io::{Write, BufReader, BufRead};
+
     use super::*;
 
     #[test]
-    fn test_ordering() {
+    fn test_complete_file() {
+        let mut file = File::open("fixtures/testfile.txt").expect("Can't open testfile");
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).expect("Can't read testfile contents");
+        assert!(check(contents).is_ok());
+    }
+
+    #[test]
+    fn test_correct_ordering() {
         assert!(check_ordering(vec![]).is_ok());
 
         assert!(check_ordering(vec![Tool::new("a", "url", "desc")]).is_ok());
@@ -300,7 +311,10 @@ mod tests {
                 Tool::new("c", "", ""),
             ]).is_ok()
         );
+    }
 
+    #[test]
+    fn test_incorrect_ordering() {
         assert!(
             check_ordering(vec![
                 Tool::new("b", "", ""),
