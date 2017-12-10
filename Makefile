@@ -11,9 +11,10 @@ image:
 .PHONY: image
 
 push:
-	docker push mre0/ci
+	docker push mre0/ci:latest
 .PHONY: push
 
 deploy:
-	cd deploy && now --public -e GITHUB_TOKEN=${GITHUB_TOKEN}
+	cd deploy && now deploy --force --public -e GITHUB_TOKEN=${GITHUB_TOKEN}
+	now alias `pbpaste` check.now.sh
 .PHONY: deploy
